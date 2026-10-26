@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { @apply bg-white text-slate-900 dark:bg-ink-900 dark:text-slate-100 antialiased; }
+
+:focus-visible { outline: 2px solid #14a39a; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Markdown content */
+.md { @apply text-[15px] leading-7 break-words; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md p { @apply my-3; }
+.md h1, .md h2, .md h3, .md h4 { @apply font-semibold mt-6 mb-2 leading-snug; }
+.md h1 { @apply text-xl; } .md h2 { @apply text-lg; } .md h3 { @apply text-base; }
+.md ul { @apply list-disc pl-6 my-3 space-y-1; }
+.md ol { @apply list-decimal pl-6 my-3 space-y-1; }
+.md li > p { @apply my-1; }
+.md a { @apply text-brand-600 dark:text-brand-500 underline underline-offset-2; }
+.md blockquote { @apply border-l-4 border-slate-300 dark:border-ink-600 pl-4 text-slate-600 dark:text-slate-400 my-3; }
+.md hr { @apply my-6 border-slate-200 dark:border-ink-700; }
+.md :not(pre) > code { @apply font-mono text-[13px] bg-slate-100 dark:bg-ink-700 rounded px-1.5 py-0.5; }
+.md table { @apply w-full text-sm border-collapse; }
+.md th { @apply text-left font-semibold bg-slate-50 dark:bg-ink-800; }
+.md th, .md td { @apply border border-slate-200 dark:border-ink-700 px-3 py-2 align-top; }
+.md pre code.hljs { @apply font-mono text-[13px] leading-6 p-4 bg-transparent; }
+
+@keyframes blink { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } }
+.dot { animation: blink 1.2s infinite both; }
+.dot:nth-child(2) { animation-delay: .15s; } .dot:nth-child(3) { animation-delay: .3s; }
+.caret::after { content: ''; display: inline-block; width: 7px; height: 1.1em; margin-left: 2px; vertical-align: text-bottom; @apply bg-brand-500; animation: blink 1s infinite; }

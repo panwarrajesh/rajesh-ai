@@ -1,0 +1,5 @@
+.venv
+__pycache__
+.env
+custom_gpt_adapter.py
+.git
