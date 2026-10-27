@@ -11,7 +11,8 @@ TEXT_EXTS = {
     ".tsx", ".vue", ".svelte", ".py", ".ipynb", ".java", ".c", ".h", ".cpp", ".hpp", ".cs", ".go", ".rs",
     ".rb", ".php", ".sh", ".bash", ".sql", ".swift", ".kt", ".dart", ".lua", ".r",
 }
-MEDIA_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".mp4", ".mov", ".mkv", ".webm", ".avi"}
+AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"}
+VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 
 MAX_CHARS = 1_000_000
 MAX_PDF_PAGES = 500
@@ -34,13 +35,15 @@ def kind_of(filename: str) -> str:
         return "docx"
     if ext in TEXT_EXTS:
         return "text"
-    if ext in MEDIA_EXTS:
-        raise ExtractError("Audio and video files arrive in Phase 3. For now, upload images, PDFs, Word files, text or code.", 415)
+    if ext in AUDIO_EXTS:
+        return "audio"
+    if ext in VIDEO_EXTS:
+        return "video"
     raise ExtractError(f"Files of type '{ext or 'unknown'}' aren't supported yet.", 415)
 
 
 def _ocr_lang(pytesseract) -> str | None:
-    want = [x for x in os.getenv("OCR_LANGS", "eng+hin").split("+") if x]
+    want = [x for x in (os.getenv("OCR_LANGS") or "eng+hin").split("+") if x]
     have = set(pytesseract.get_languages(config=""))
     use = [x for x in want if x in have]
     return "+".join(use) or None
@@ -153,6 +156,8 @@ def _text(data: bytes) -> tuple[str, dict]:
 
 def extract(filename: str, data: bytes) -> dict:
     kind = kind_of(filename)
+    if kind in ("audio", "video"):
+        raise ExtractError("Audio and video are processed through /media/jobs.", 400)
     text, meta = {"image": _image, "pdf": _pdf, "docx": _docx, "text": _text}[kind](data)
     meta["truncated"] = len(text) > MAX_CHARS
     text = text[:MAX_CHARS]

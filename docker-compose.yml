@@ -1,0 +1,67 @@
+# Start everything:   docker compose up --build         (then open http://localhost:8080)
+# With Ollama inside Docker too:   docker compose --profile ollama up --build
+services:
+  web:
+    build: ./frontend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on: [backend]
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      AI_SERVICE_URL: http://ai-service:8000
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD in .env}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:?Set INTERNAL_TOKEN in .env}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
+      DEFAULT_TIMEZONE: ${DEFAULT_TIMEZONE:-Asia/Kolkata}
+      TRUST_PROXY: "1"
+      DATA_DIR: /data
+    volumes:
+      - rajesh-data:/data
+    depends_on: [ai-service]
+    restart: unless-stopped
+
+  ai-service:
+    build: ./ai-service
+    environment:
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:?Set INTERNAL_TOKEN in .env}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      OCR_LANGS: ${OCR_LANGS:-eng+hin}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODELS: ${OPENAI_MODELS:-}
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER:-}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_BASE_URL: ${IMAGE_BASE_URL:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-}
+      A1111_URL: ${A1111_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # lets the container reach Ollama running on your computer
+    volumes:
+      - hf-cache:/home/app/.cache/huggingface # downloaded Whisper models
+    restart: unless-stopped
+
+  ollama:                                       # optional: only with --profile ollama
+    image: ollama/ollama
+    profiles: ["ollama"]
+    volumes:
+      - ollama:/root/.ollama
+    # NVIDIA GPU: install the NVIDIA Container Toolkit, then uncomment
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  rajesh-data:
+  hf-cache:
+  ollama:

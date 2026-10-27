@@ -7,6 +7,7 @@ import httpx
 
 from .base import Provider, ProviderError
 
+TOOL_HINTS = ("qwen2.5", "qwen3", "llama3.1", "llama3.2", "llama3.3", "mistral", "command-r", "granite", "firefunction", "hermes")
 VISION_HINTS = ("llava", "vision", "-vl", "vl:", "minicpm-v", "moondream", "bakllava", "gemma3", "llama4")
 
 
@@ -15,7 +16,7 @@ class OllamaProvider(Provider):
     label = "Ollama (local open-source models)"
 
     def __init__(self) -> None:
-        self.base = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+        self.base = (os.getenv("OLLAMA_URL") or "http://localhost:11434").rstrip("/")
         self._caps_cache: dict[str, dict] = {}
 
     async def _caps(self, client: httpx.AsyncClient, name: str) -> dict:
@@ -23,7 +24,7 @@ class OllamaProvider(Provider):
         if name in self._caps_cache:
             return self._caps_cache[name]
         vision = any(h in name.lower() for h in VISION_HINTS)
-        tools = False
+        tools = any(h in name.lower() for h in TOOL_HINTS) and "vision" not in name.lower()  # guess for old Ollama
         try:
             r = await client.post(f"{self.base}/api/show", json={"model": name, "name": name})
             if r.status_code == 200:
@@ -33,7 +34,7 @@ class OllamaProvider(Provider):
                     vision, tools = "vision" in caps, "tools" in caps
                 else:
                     fam = (d.get("details") or {}).get("families") or []
-                    vision = vision or any(f in ("clip", "mllama") for f in fam)
+                    vision = vision or any(f in ("clip", "mllama") for f in fam)  # tools stays a name-based guess
         except httpx.HTTPError:
             pass
         self._caps_cache[name] = {"vision": vision, "tools": tools}
@@ -60,9 +61,27 @@ class OllamaProvider(Provider):
             raise ProviderError("Ollama is running but has no models. Run `ollama pull qwen2.5:7b`.")
         return models
 
-    async def stream(self, model: str, messages: list[dict], temperature: float) -> AsyncIterator[str]:
-        payload = {"model": model, "messages": messages, "stream": True,
-                   "options": {"temperature": temperature}}
+    @staticmethod
+    def _convert(m: dict) -> dict:
+        if m["role"] == "assistant" and m.get("tool_calls"):
+            return {"role": "assistant", "content": m.get("content") or "",
+                    "tool_calls": [{"function": {"name": c["name"], "arguments": c.get("arguments") or {}}}
+                                   for c in m["tool_calls"]]}
+        if m["role"] == "tool":
+            return {"role": "tool", "content": m.get("content") or "", "tool_name": m.get("name") or ""}
+        out = {"role": m["role"], "content": m.get("content", "")}
+        if m.get("images"):
+            out["images"] = m["images"]
+        return out
+
+    async def stream(self, model: str, messages: list[dict], temperature: float,
+                     tools: list[dict] | None = None) -> AsyncIterator[str | dict]:
+        payload = {"model": model, "messages": [self._convert(m) for m in messages], "stream": True,
+                   "options": {"temperature": temperature,
+                               "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "8192"))}}
+        if tools:
+            payload["tools"] = tools
+        calls: list[dict] = []
         timeout = httpx.Timeout(300, connect=5)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -76,11 +95,22 @@ class OllamaProvider(Provider):
                         data = json.loads(line)
                         if data.get("error"):
                             raise ProviderError(data["error"])
-                        text = data.get("message", {}).get("content", "")
-                        if text:
-                            yield text
+                        msg = data.get("message", {})
+                        if msg.get("content"):
+                            yield msg["content"]
+                        for tc in msg.get("tool_calls") or []:
+                            fn = tc.get("function", {})
+                            args = fn.get("arguments") or {}
+                            if isinstance(args, str):
+                                try:
+                                    args = json.loads(args)
+                                except json.JSONDecodeError:
+                                    args = {}
+                            calls.append({"id": f"call_{len(calls)}", "name": fn.get("name", ""), "arguments": args})
                         if data.get("done"):
                             break
+                    if calls:
+                        yield {"tool_calls": calls}
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             raise self._unreachable() from e
         except httpx.ReadTimeout as e:

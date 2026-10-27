@@ -14,8 +14,13 @@ class Provider:
         """Return [{id, name, capabilities:{vision, tools}}]. Raise ProviderError if unavailable."""
         raise NotImplementedError
 
-    def stream(self, model: str, messages: list[dict], temperature: float) -> AsyncIterator[str]:
-        """Async generator yielding text chunks."""
+    def stream(self, model: str, messages: list[dict], temperature: float,
+               tools: list[dict] | None = None) -> AsyncIterator[str | dict]:
+        """Async generator yielding text chunks (str). If the model asks for tools it finally yields
+        {"tool_calls": [{"id", "name", "arguments": dict}]}.
+
+        Canonical message shapes: assistant {"role","content","tool_calls":[...]} and
+        tool {"role":"tool","tool_call_id","name","content"}. Providers convert to their own format."""
         raise NotImplementedError
 
     async def describe(self) -> dict:

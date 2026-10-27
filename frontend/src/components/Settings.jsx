@@ -2,7 +2,7 @@ import { X, Sun, Moon } from 'lucide-react';
 
 const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-ink-600 dark:bg-ink-800';
 
-export default function Settings({ settings, setSettings, providers, modelsError, theme, setTheme, onClose }) {
+export default function Settings({ settings, setSettings, providers, modelsError, theme, setTheme, onClose, caps }) {
   const provider = providers.find((p) => p.id === settings.provider);
   const models = provider?.models || [];
   const current = models.find((m) => m.id === settings.model);
@@ -44,7 +44,7 @@ export default function Settings({ settings, setSettings, providers, modelsError
             </select>
             {current && (
               <p className="text-xs text-slate-500">
-                Image input: {current.capabilities.vision ? 'supported (the model sees the picture)' : 'not supported (only OCR text is used)'} · Tools: {current.capabilities.tools ? 'yes' : 'not yet'}
+                Image input: {current.capabilities.vision ? 'supported (the model sees the picture)' : 'not supported (only OCR text is used)'} · Tools: {current.capabilities.tools ? 'supported' : 'not supported'}
               </p>
             )}
             {provider?.experimental && (
@@ -59,6 +59,15 @@ export default function Settings({ settings, setSettings, providers, modelsError
             <span className="block text-xs text-slate-500">Lower is more focused and factual. Higher is more varied.</span>
           </label>
 
+          {[['useMemory', 'Use memory', 'Send the facts you asked me to remember along with your messages.'],
+            ['useTools', 'Use tools', 'Let the model use the calculator, date/time, memory, your attached files and project files. Needs a tool-capable model.']].map(([key, label, help]) => (
+            <label key={key} className="flex items-start justify-between gap-3">
+              <span><span className="block font-medium">{label}</span><span className="block text-xs text-slate-500">{help}</span></span>
+              <input type="checkbox" className="mt-1 h-4 w-4 flex-none accent-brand-600" checked={settings[key] !== false}
+                onChange={(e) => setSettings({ ...settings, [key]: e.target.checked })} />
+            </label>
+          ))}
+
           <label className="block space-y-1.5">
             <span className="font-medium">Voice language (input and read-aloud)</span>
             <select className={field} value={settings.voiceLang} onChange={(e) => setSettings({ ...settings, voiceLang: e.target.value })}>
@@ -67,6 +76,15 @@ export default function Settings({ settings, setSettings, providers, modelsError
               <option value="en-US">English (US)</option>
             </select>
           </label>
+
+          <div className="space-y-1">
+            <span className="font-medium">Image generation</span>
+            {!caps ? <p className="text-xs text-slate-500">Checking...</p> : caps.image?.available ? (
+              <p className="text-xs text-slate-500">Connected: {caps.image.model} ({caps.image.provider}). Try <code>/image a red kite</code>. {caps.image.can_edit ? 'AI editing works too (/edit).' : 'This model can create but not edit pictures.'}</p>
+            ) : (
+              <p className="text-xs text-slate-500">{caps.image?.message || 'Not configured.'} Simple edits (/img) and video edits (/video) still work.</p>
+            )}
+          </div>
 
           <div className="space-y-1.5">
             <span className="font-medium">Theme</span>

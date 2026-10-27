@@ -42,9 +42,10 @@ class PyTorchGPTProvider(Provider):
         return [{"id": "custom-gpt", "name": "Custom GPT (small, experimental)",
                  "capabilities": {"vision": False, "tools": False}}]
 
-    async def stream(self, model: str, messages: list[dict], temperature: float) -> AsyncIterator[str]:
+    async def stream(self, model: str, messages: list[dict], temperature: float,
+                     tools: list[dict] | None = None) -> AsyncIterator[str]:
         mod = self._adapter()
-        prompt = "\n".join(f"{m['role']}: {m['content']}" for m in messages) + "\nassistant:"
+        prompt = "\n".join(f"{m['role']}: {m.get('content', '')}" for m in messages if m["role"] != "tool") + "\nassistant:"
         gen = iter(mod.generate(prompt, temperature))
         while True:
             chunk = await asyncio.to_thread(next, gen, _SENTINEL)  # don't block the event loop
