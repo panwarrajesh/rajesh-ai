@@ -4,6 +4,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -22,7 +23,7 @@ import imageops  # noqa: E402
 from extract import ExtractError, extract  # noqa: E402
 from media_edit import edit_media  # noqa: E402
 from images import prepare_image_b64  # noqa: E402
-from media import Cancelled, MediaError, process_media  # noqa: E402
+from media import Cancelled, MediaError, process_media, transcribe_clip  # noqa: E402
 from providers.base import ProviderError  # noqa: E402
 from providers.ollama import OllamaProvider  # noqa: E402
 from providers.openai_compat import OpenAICompatProvider  # noqa: E402
@@ -46,6 +47,7 @@ MAX_UPLOAD = 30 * 1024 * 1024
 JOBS: dict[str, dict] = {}
 _TASKS: set = set()
 MEDIA_SEM = asyncio.Semaphore(1)  # one heavy transcription at a time
+STT_SEM = asyncio.Semaphore(1)    # voice clips, kept separate so a long video never blocks a spoken question
 
 
 class Msg(BaseModel):
@@ -142,6 +144,21 @@ async def resolve(req: ChatRequest):
     if not model:
         model = (await provider.list_models())[0]["id"]
     return provider, model
+
+
+@app.post("/stt")
+async def stt(file: UploadFile = File(...), lang: str = Form("")):
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(413, "The recording is too long.")
+    if not re.fullmatch(r"[a-z]{2}", lang or ""):
+        lang = ""
+    try:
+        async with STT_SEM:
+            text = await asyncio.to_thread(transcribe_clip, data, os.path.splitext(file.filename or "")[1], lang)
+    except MediaError as e:
+        raise HTTPException(503, str(e)) from e
+    return {"text": text}
 
 
 @app.post("/chat/stream")

@@ -165,5 +165,11 @@ export function buildContext(chatId, { maxChars, continueMode }) {
       notice = `Your files are large (${r.total.toLocaleString()} characters), so only the ${r.used.toLocaleString()} most relevant characters were used. Ask for a summary to read the whole file in parts.`;
     }
   }
-  return { history, docContext, notice, docs, partial, question };
+  // Files with no readable text must never be silently skipped, or the model may pretend it read them.
+  const unreadableFiles = atts.filter((a) => a.kind !== 'image' && !(a.text && a.text.trim()));
+  const unreadable = unreadableFiles.length
+    ? 'These attached files contain NO readable text, so you have NOT read them. Never pretend you did: tell the user plainly which file could not be read and why, and ask for another version if needed:\n' +
+      unreadableFiles.map((a) => { const w = JSON.parse(a.meta || '{}').warning; return `- ${a.name}${w ? ` (${w})` : ''}`; }).join('\n')
+    : '';
+  return { history, docContext, notice, docs, partial, question, unreadable };
 }

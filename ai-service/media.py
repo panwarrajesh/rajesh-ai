@@ -111,6 +111,27 @@ def transcribe(wav: str, duration: float, on_progress) -> tuple[str, float, list
     return info.language, round(info.language_probability, 3), out
 
 
+def transcribe_clip(data: bytes, suffix: str, lang: str) -> str:
+    """Short voice clip (a spoken question) -> text. Used by the voice assistant when the browser has no speech recognition."""
+    _need("ffmpeg")
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError as e:
+        raise MediaError("Speech-to-text isn't installed on the AI service. Run `pip install faster-whisper`.") from e
+    tmp = tempfile.mkdtemp(prefix="rajesh_stt_")
+    try:
+        src = os.path.join(tmp, "clip" + (suffix or ".webm"))
+        with open(src, "wb") as fh:
+            fh.write(data)
+        wav = os.path.join(tmp, "audio.wav")
+        extract_audio(src, wav)
+        segments, _ = _whisper().transcribe(wav, language=lang or os.getenv("WHISPER_LANGUAGE") or None,
+                                            vad_filter=True, beam_size=1)
+        return " ".join(s.text.strip() for s in segments).strip()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _b64(path: str) -> str:
     return base64.b64encode(Path(path).read_bytes()).decode()
 

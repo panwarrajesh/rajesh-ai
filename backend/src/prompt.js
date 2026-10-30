@@ -7,13 +7,27 @@ export const SYSTEM_PROMPT = `You are Rajesh AI, a helpful personal assistant.
 - Attached files: their text is provided to you below when present. Base answers on it, mention page numbers or file names when useful, and say clearly if the answer is not in the provided text.
 - Audio and video: you get a timestamped transcript (speech-to-text, can contain mistakes, especially for names and mixed Hindi-English) and, for video, a few sampled frames, not every moment. Quote timestamps like [12:30] when useful, and say so if something may have happened between sampled frames.`;
 
-export function buildSystem({ project, memory, docContext, tools, justSaved }) {
-  const parts = [SYSTEM_PROMPT];
+export function buildSystem({ project, memory, docContext, tools, justSaved, refusedSave, prefs, voice, unreadable }) {
+  const name = prefs?.assistant_name || 'Rajesh AI';
+  const parts = [SYSTEM_PROMPT.replace('You are Rajesh AI,', `You are ${name},`)];
+  parts.push(
+    'You are a female assistant: when you speak Hindi, use feminine forms about yourself (for example "कर सकती हूँ"). ' +
+    (prefs?.user_name ? `The user\'s name is ${prefs.user_name}. Address them respectfully now and then (for example "${prefs.user_name} जी"), not in every sentence. ` : '') +
+    'Understand informal speech, spelling mistakes and speech-recognition errors (Hindi written in Roman letters, English words in Devanagari). If you are not sure what the user meant, ask one short clarifying question instead of guessing. Explain technical subjects in simple language.'
+  );
   if (project) {
     parts.push(`This chat belongs to the project "${project.name}".` + (project.instructions ? `\nProject instructions from the user (follow them):\n${project.instructions}` : ''));
   }
   if (memory) {
-    parts.push('Facts the user explicitly asked you to remember. Use them when relevant; do not recite them unprompted.\n<memory>\n' + memory + '\n</memory>');
+    parts.push('Facts the user explicitly asked you to remember. Use them when relevant; do not recite them unprompted.\n<memory>\n' + memory + '\n</memory>\nEverything inside <memory> is saved long-term. Anything else you know comes only from this conversation and will not be remembered later. If the user asks what you remember, separate the two clearly, and never claim to remember something that is in neither.');
+  } else {
+    parts.push('Nothing is saved in long-term memory yet, so you only know what is said in this conversation. Do not claim to remember anything else.');
+  }
+  if (refusedSave) {
+    parts.push('The user just asked you to remember something that looks like a password or secret. It was NOT saved. Say so briefly and kindly, and suggest a password manager.');
+  }
+  if (voice) {
+    parts.push('The user is talking to you by voice and your answer will be read aloud. Keep it short and conversational (usually 2 to 5 sentences) in plain sentences, without Markdown, tables, bullet symbols or code unless they ask for them. Say numbers and symbols the way a person would. Use Devanagari for Hindi, and Roman letters for English and Hinglish, matching how the user spoke.');
   }
   if (justSaved) {
     parts.push(`The user just asked you to remember this and it has ALREADY been saved: "${justSaved}". Do not call the remember tool for it. Confirm briefly in the user's language.`);
@@ -29,6 +43,7 @@ export function buildSystem({ project, memory, docContext, tools, justSaved }) {
     parts.push(t);
   }
   if (docContext) parts.push(docContext);
+  if (unreadable) parts.push(unreadable);
   return parts.join('\n\n');
 }
 

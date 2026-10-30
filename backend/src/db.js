@@ -77,3 +77,12 @@ if (!msgCols.includes('tools')) db.exec('ALTER TABLE messages ADD COLUMN tools T
 // Phase 5: files created by the AI (generated / edited images and videos)
 const attCols = db.prepare('PRAGMA table_info(attachments)').all().map((c) => c.name);
 if (!attCols.includes('origin')) db.exec("ALTER TABLE attachments ADD COLUMN origin TEXT NOT NULL DEFAULT 'upload'");
+
+// Voice assistant: user-approved preferences (assistant name, user name, greeting). Additive table, no existing data touched.
+db.exec(`
+CREATE TABLE IF NOT EXISTS preferences (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`);
