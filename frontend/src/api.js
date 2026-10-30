@@ -21,6 +21,23 @@ export const api = {
   login: (password) => j('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => j('/api/auth/logout', { method: 'POST', body: '{}' }),
   capabilities: () => j('/api/capabilities'),
+  preferences: () => j('/api/preferences'),
+  savePreferences: (p) => j('/api/preferences', { method: 'PUT', body: JSON.stringify(p) }),
+  resetPreferences: () => j('/api/preferences', { method: 'DELETE' }),
+  deleteAllChats: () => j('/api/chats', { method: 'DELETE' }),
+  transcribe: async (blob, lang = '') => {
+    const fd = new FormData();
+    fd.append('audio', blob, 'speech.webm');
+    fd.append('lang', String(lang).slice(0, 2));
+    const r = await fetch(BASE + '/api/transcribe', { method: 'POST', body: fd });
+    if (r.status === 401) onUnauthorized?.();
+    if (!r.ok) {
+      let msg = 'Speech-to-text failed.';
+      try { msg = (await r.json()).error || msg; } catch { /* not json */ }
+      throw new Error(msg);
+    }
+    return r.json();
+  },
   models: () => j('/api/models'),
   chats: (q = '', project = '') => j('/api/chats?q=' + encodeURIComponent(q) + (project ? '&project=' + project : '')),
   createChat: (projectId = null) => j('/api/chats', { method: 'POST', body: JSON.stringify({ project_id: projectId }) }),

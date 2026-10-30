@@ -4,7 +4,7 @@ import { api } from '../api.js';
 
 const row = 'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-left hover:bg-slate-200/60 dark:hover:bg-ink-700';
 
-export default function Sidebar({ chats, activeId, query, setQuery, onNew, onSelect, onRename, onDelete, onSettings, onMemory, onClose, open, authRequired, onLogout,
+export default function Sidebar({ chats, activeId, query, setQuery, onNew, onSelect, onRename, onDelete, onSettings, onMemory, onClose, open, authRequired, onLogout, assistantName = 'Rajesh AI',
   projects, activeProject, onSelectProject, onNewProject }) {
   const [menuFor, setMenuFor] = useState(null);
 
@@ -18,7 +18,7 @@ export default function Sidebar({ chats, activeId, query, setQuery, onNew, onSel
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <div className="flex items-center gap-2 font-semibold">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink-800 text-marigold"><Sparkles size={16} /></span>
-          Rajesh AI
+          {assistantName}
         </div>
         <button onClick={onClose} aria-label="Close sidebar" title="Close sidebar"
           className="rounded-lg p-2 text-slate-500 hover:bg-slate-200/60 dark:hover:bg-ink-700"><PanelLeftClose size={18} /></button>

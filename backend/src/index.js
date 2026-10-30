@@ -4,6 +4,8 @@ import cors from 'cors';
 import chats from './chats.js';
 import memories from './memories.js';
 import projects from './projects.js';
+import preferences from './preferences.js';
+import voice from './voice.js';
 import auth, { authEnabled, requireAuth } from './auth.js';
 import { limiter } from './ratelimit.js';
 import uploads, { cleanupPending, failInterrupted } from './uploads.js';
@@ -43,6 +45,7 @@ app.use('/api', requireAuth); // everything below needs a login when APP_PASSWOR
 
 app.use('/api/chats/:id/stream', limiter('stream', 40, 60 * 1000));
 app.post('/api/uploads', limiter('upload', 60, 10 * 60 * 1000));
+app.use('/api/transcribe', limiter('stt', 60, 60 * 1000), voice);
 
 app.get('/api/capabilities', async (_req, res) => res.json({ image: await imageStatus(), auth: authEnabled }));
 
@@ -62,6 +65,7 @@ app.use('/api/chats', chats);
 app.use('/api/uploads', uploads);
 app.use('/api/memories', memories);
 app.use('/api/projects', projects);
+app.use('/api/preferences', preferences);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

@@ -2,6 +2,39 @@ import { Router } from 'express';
 import { db } from './db.js';
 
 const MAX_LEN = 500;
+
+function luhn(digits) {
+  let sum = 0, alt = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let n = Number(digits[i]);
+    if (alt) { n *= 2; if (n > 9) n -= 9; }
+    sum += n; alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+// Returns a short reason when the text looks like a secret, otherwise null.
+export function sensitiveReason(text) {
+  const t = String(text || '');
+  if (/\b(password|passcode|passwd|pwd|otp|cvv|cvc|secret|pin(?!\s*-?code))\b/i.test(t) || /(पासवर्ड|ओटीपी|पिन\s*नंबर|सीक्रेट)/.test(t)) return 'a password, PIN, OTP or secret';
+  if (/\b(api|access|auth|bearer|secret|private)[\s_-]?(key|token)\b/i.test(t)) return 'an API key or access token';
+  if (/\bsk-[A-Za-z0-9_-]{16,}|\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./.test(t)) return 'an API key or access token';
+  if (/[A-Za-z0-9+/_-]{40,}/.test(t)) return 'a long secret-looking key';
+  for (const m of t.matchAll(/(?:\d[ -]?){13,19}/g)) {
+    const d = m[0].replace(/\D/g, '');
+    if (d.length >= 13 && d.length <= 19 && luhn(d)) return 'a card number';
+  }
+  if (/\b[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}\b/.test(t)) return 'an Aadhaar number';
+  if (/\b[A-Z]{5}\d{4}[A-Z]\b/.test(t)) return 'a PAN number';
+  return null;
+}
+
+export class SensitiveError extends Error {
+  constructor(reason) {
+    super(`Not saved: this looks like ${reason}. I don't keep passwords or secrets in memory. A password manager is the safe place for them.`);
+    this.sensitive = true;
+  }
+}
 const BUDGET = Number(process.env.MEMORY_CHAR_BUDGET || 3000);
 const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -33,6 +66,8 @@ export function listMemories() {
 export function addMemory(text) {
   const clean = String(text || '').trim().slice(0, MAX_LEN);
   if (!clean) throw new Error('Memory text is empty');
+  const reason = sensitiveReason(clean);
+  if (reason) throw new SensitiveError(reason);
   const dup = listMemories().find((m) => norm(m.text) === norm(clean));
   if (dup) return { id: dup.id, text: dup.text, duplicate: true };
   const now = Date.now();
@@ -64,6 +99,8 @@ router.post('/', (req, res) => {
 router.patch('/:id', (req, res) => {
   const text = String(req.body?.text || '').trim().slice(0, MAX_LEN);
   if (!text) return res.status(400).json({ error: 'Memory text is empty' });
+  const reason = sensitiveReason(text);
+  if (reason) return res.status(400).json({ error: new SensitiveError(reason).message });
   const r = db.prepare('UPDATE memories SET text = ?, updated_at = ? WHERE id = ?').run(text, Date.now(), Number(req.params.id));
   if (!r.changes) return res.status(404).json({ error: 'Memory not found' });
   res.json({ id: Number(req.params.id), text });

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { X, Pencil, Trash2, Check, Plus } from 'lucide-react';
 import { api } from '../api.js';
 
-export default function Memory({ onClose }) {
+export default function Memory({ onClose, onChatsDeleted }) {
   const [items, setItems] = useState(null);
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState(null); // { id, text }
@@ -20,7 +20,7 @@ export default function Memory({ onClose }) {
           <button onClick={onClose} aria-label="Close memory" className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-ink-700"><X size={18} /></button>
         </div>
         <p className="mb-3 text-sm text-slate-500">
-          Only things you explicitly ask me to remember are saved, for example "Remember that my name is Rajesh" or "yaad rakhna: main Faridabad mein rehta hoon". You can edit or delete anything here.
+          Only things you explicitly ask me to remember are saved, for example "Remember that my name is Rajesh" or "yaad rakhna: main Faridabad mein rehta hoon". You can edit or delete anything here. What is listed here is saved on this computer and used in every chat; anything you say only inside a chat stays in that chat's history and is not memory. Passwords, PINs, API keys and card numbers are never saved.
         </p>
 
         <form className="mb-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) run(async () => { await api.addMemory(draft.trim()); setDraft(''); }); }}>
@@ -59,6 +59,13 @@ export default function Memory({ onClose }) {
           <button className="mt-3 self-start text-sm text-red-600 hover:underline"
             onClick={() => { if (window.confirm('Delete ALL saved memories? This cannot be undone.')) run(() => api.clearMemories()); }}>Clear all memory</button>
         )}
+
+        <div className="mt-4 border-t border-slate-200 pt-3 text-sm dark:border-ink-700">
+          <p className="font-medium">Conversations</p>
+          <p className="text-slate-500">Saved chats are listed in the sidebar, where you can delete them one by one. You can also delete all of them at once. Memories, projects and settings are kept.</p>
+          <button className="mt-2 text-red-600 hover:underline"
+            onClick={() => { if (window.confirm('Delete ALL conversations and their files? This cannot be undone. Your memories and settings are kept.')) run(async () => { await api.deleteAllChats(); onChatsDeleted?.(); }); }}>Delete all conversations</button>
+        </div>
       </div>
     </div>
   );

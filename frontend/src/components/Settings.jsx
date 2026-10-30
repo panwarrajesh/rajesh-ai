@@ -1,8 +1,69 @@
-import { X, Sun, Moon } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, Sun, Moon, Volume2 } from 'lucide-react';
+import { speaker } from '../voice/speech.js';
 
 const field = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-ink-600 dark:bg-ink-800';
 
-export default function Settings({ settings, setSettings, providers, modelsError, theme, setTheme, onClose, caps }) {
+function VoiceSettings({ settings, setSettings, prefs, savePrefs, resetPrefs }) {
+  const [voices, setVoices] = useState(() => speaker.voices());
+  const [draft, setDraft] = useState({ assistant_name: prefs.assistant_name, user_name: prefs.user_name, greeting: prefs.greeting });
+  const [status, setStatus] = useState('');
+  useEffect(() => {
+    setVoices(speaker.voices());
+    return speaker.subscribe((t) => { if (t === 'voices') setVoices(speaker.voices()); });
+  }, []);
+  const usable = voices.filter((v) => /^(hi|en)/i.test(v.lang));
+  const input = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-ink-600 dark:bg-ink-800';
+
+  async function save() {
+    setStatus('Saving...');
+    try { await savePrefs(draft); setStatus('Saved.'); } catch (e) { setStatus(e.message); }
+  }
+  async function reset() {
+    try { const p = await resetPrefs(); setDraft({ assistant_name: p.assistant_name, user_name: p.user_name, greeting: p.greeting }); setStatus('Back to the defaults.'); } catch (e) { setStatus(e.message); }
+  }
+
+  return (
+    <div className="space-y-4 rounded-xl border border-slate-200 p-3 dark:border-ink-700">
+      <p className="font-medium">Voice assistant</p>
+      <label className="block space-y-1.5"><span>Assistant name</span>
+        <input className={input} value={draft.assistant_name} maxLength={40} onChange={(e) => setDraft({ ...draft, assistant_name: e.target.value })} /></label>
+      <label className="block space-y-1.5"><span>Your name (used to address you)</span>
+        <input className={input} value={draft.user_name} maxLength={60} onChange={(e) => setDraft({ ...draft, user_name: e.target.value })} /></label>
+      <label className="block space-y-1.5"><span>Greeting (spoken once when a voice session starts)</span>
+        <textarea className={input} rows={3} value={draft.greeting} maxLength={400} onChange={(e) => setDraft({ ...draft, greeting: e.target.value })} /></label>
+      <div className="flex items-center gap-3">
+        <button onClick={save} className="rounded-lg bg-brand-600 px-3 py-1.5 text-white hover:bg-brand-700">Save</button>
+        <button onClick={reset} className="text-slate-500 hover:underline">Reset to defaults</button>
+        <span role="status" className="text-xs text-slate-500">{status}</span>
+      </div>
+
+      <label className="block space-y-1.5"><span>Voice</span>
+        <select className={input} value={settings.voiceURI || ''} onChange={(e) => setSettings({ ...settings, voiceURI: e.target.value })}>
+          <option value="">Automatic (a female voice where available)</option>
+          {usable.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>)}
+        </select>
+        {!usable.some((v) => /^hi/i.test(v.lang)) && <span className="block text-xs text-amber-700 dark:text-amber-300">No Hindi voice was found on this device. Hindi will sound wrong until you install one in your system settings.</span>}
+      </label>
+      <label className="block space-y-1.5"><span>Speaking speed: {(Number(settings.voiceRate) || 1).toFixed(1)}x</span>
+        <input type="range" min="0.7" max="1.3" step="0.1" value={Number(settings.voiceRate) || 1} className="w-full accent-brand-600"
+          onChange={(e) => setSettings({ ...settings, voiceRate: Number(e.target.value) })} /></label>
+      <button onClick={() => { speaker.stop(); speaker.speak(draft.greeting, { force: true }); }} className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-800">
+        <Volume2 size={16} /> Test the voice
+      </button>
+
+      <label className="block space-y-1.5"><span>Speech recognition (your microphone)</span>
+        <select className={input} value={settings.sttMode || 'auto'} onChange={(e) => setSettings({ ...settings, sttMode: e.target.value })}>
+          <option value="auto">Automatic</option>
+          <option value="browser">Browser (fast; Chrome sends audio to Google)</option>
+          <option value="server">This computer (Whisper; private, a little slower)</option>
+        </select>
+      </label>
+    </div>
+  );
+}
+
+export default function Settings({ settings, setSettings, providers, modelsError, theme, setTheme, onClose, caps, prefs, savePrefs, resetPrefs }) {
   const provider = providers.find((p) => p.id === settings.provider);
   const models = provider?.models || [];
   const current = models.find((m) => m.id === settings.model);
@@ -13,7 +74,7 @@ export default function Settings({ settings, setSettings, providers, modelsError
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose} role="dialog" aria-modal="true" aria-label="Settings">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose} role="dialog" aria-modal="true" aria-label="Settings">
       <div className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-xl dark:bg-ink-850" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Settings</h2>
@@ -76,6 +137,8 @@ export default function Settings({ settings, setSettings, providers, modelsError
               <option value="en-US">English (US)</option>
             </select>
           </label>
+
+          <VoiceSettings settings={settings} setSettings={setSettings} prefs={prefs} savePrefs={savePrefs} resetPrefs={resetPrefs} />
 
           <div className="space-y-1">
             <span className="font-medium">Image generation</span>

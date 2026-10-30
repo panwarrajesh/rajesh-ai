@@ -11,6 +11,7 @@ import { buildTools } from './tools.js';
 import { parseSlash, runSlash } from './slash.js';
 import { AI_URL } from './ai.js';
 import { addMemory, detectRememberRequest, memoryBlock } from './memories.js';
+import { getPrefs } from './preferences.js';
 
 const MAX_CONTEXT = Number(process.env.MAX_CONTEXT_CHARS || 24000);
 const SUMMARY_WINDOW = Number(process.env.SUMMARY_WINDOW_CHARS || 6000);
@@ -54,6 +55,13 @@ router.get('/', (req, res) => {
 });
 
 // ---------- CRUD ----------
+// Delete EVERY conversation (and its files). Memories, projects and preferences are not touched.
+router.delete('/', (_req, res) => {
+  deleteAttachmentFiles(db.prepare('SELECT id, path FROM attachments WHERE chat_id IS NOT NULL').all());
+  db.prepare('DELETE FROM chats').run(); // messages and attachment rows cascade
+  res.status(204).end();
+});
+
 router.post('/', (req, res) => {
   const now = Date.now();
   const id = randomUUID();
@@ -188,13 +196,21 @@ router.post('/:id/stream', async (req, res) => {
 
   // An explicit "remember ..." message is saved directly, so it works with any model (no tool calling needed).
   let justSaved = null;
+  let refusedSave = false;
   let savedNotice = null;
+  const voice = req.body?.voice === true; // spoken conversation: short, plain answers
   if ((mode === 'send' || mode === 'edit') && useMemory) {
     const fact = detectRememberRequest(content);
     if (fact) {
-      const r = addMemory(fact);
-      justSaved = r.text;
-      savedNotice = r.duplicate ? `Already in memory: "${r.text}"` : `Saved to memory: "${r.text}"`;
+      try {
+        const r = addMemory(fact);
+        justSaved = r.text;
+        savedNotice = r.duplicate ? `Already in memory: "${r.text}"` : `Saved to memory: "${r.text}"`;
+      } catch (e) {
+        if (!e.sensitive) throw e;
+        refusedSave = true; // password / card / key: refuse, and tell the user why
+        savedNotice = e.message;
+      }
     }
   }
   const slash = mode === 'send' || mode === 'edit' ? parseSlash(content) : null;
@@ -246,7 +262,7 @@ router.post('/:id/stream', async (req, res) => {
       ? await buildTools({ chatId: chat.id, projectId: project?.id || null, userText, signal: ac.signal, send })
       : { defs: [], names: [], run: async () => ({}) };
     const system = buildSystem({
-      project, docContext, justSaved, tools: toolkit.names,
+      project, docContext, justSaved, refusedSave, voice, prefs: getPrefs(), unreadable: ctx.unreadable, tools: toolkit.names,
       memory: useMemory ? memoryBlock() : '',
     });
     const r = await runGeneration({

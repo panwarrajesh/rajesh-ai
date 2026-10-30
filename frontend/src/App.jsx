@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Menu, Sun, Moon, SquarePen, AlertCircle, Info, X, Sparkles, Upload, FolderKanban } from 'lucide-react';
+import { Menu, Sun, Moon, SquarePen, AlertCircle, Info, X, Sparkles, Upload, FolderKanban, Mic } from 'lucide-react';
 import { api, streamChat, setUnauthorizedHandler } from './api.js';
 import Sidebar from './components/Sidebar.jsx';
 import Message from './components/Message.jsx';
@@ -8,6 +8,8 @@ import Settings from './components/Settings.jsx';
 import Memory from './components/Memory.jsx';
 import ProjectModal from './components/ProjectModal.jsx';
 import Login from './components/Login.jsx';
+import VoiceMode from './components/VoiceMode.jsx';
+import { speaker, SpeechChunker } from './voice/speech.js';
 import { useAttachments } from './useAttachments.js';
 
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
@@ -25,11 +27,15 @@ const PROJECT_SUGGESTIONS = [
   'Create the first version of the project and save the files',
 ];
 
-const stripMd = (s) => s.replace(/```[\s\S]*?```/g, ' code block ').replace(/[#*_`>|~-]+/g, ' ').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+const DEFAULT_PREFS = {
+  assistant_name: 'Rajesh AI',
+  user_name: 'राजेश पंवार',
+  greeting: 'नमस्ते राजेश पंवार जी! कैसे हो? मैं आपकी Rajesh AI हूँ। बताइए, मैं आपकी क्या मदद कर सकती हूँ?',
+};
 
 export default function App() {
   const [theme, setTheme] = useState(() => load('theme', matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-  const [settings, setSettings] = useState(() => load('settings', { provider: '', model: '', temperature: 0.7, voiceLang: 'en-IN', useMemory: true, useTools: true }));
+  const [settings, setSettings] = useState(() => load('settings', { provider: '', model: '', temperature: 0.7, voiceLang: 'hi-IN', voiceRate: 1, voiceURI: '', sttMode: 'auto', useMemory: true, useTools: true }));
   const [providers, setProviders] = useState([]);
   const [modelsError, setModelsError] = useState('');
   const [chats, setChats] = useState([]);
@@ -45,6 +51,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [showSettings, setShowSettings] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [prefs, setPrefs] = useState(DEFAULT_PREFS);
   const [auth, setAuth] = useState({ loading: true, required: false, ok: true });
   const [caps, setCaps] = useState(null);
   const [projects, setProjects] = useState([]);
@@ -64,6 +72,21 @@ export default function App() {
       .catch(() => setAuth({ loading: false, required: false, ok: true })); // backend down: show the app, which explains it
   }, []);
   useEffect(() => { if (auth.ok) api.capabilities().then(setCaps).catch(() => {}); }, [auth.ok]);
+  useEffect(() => { if (auth.ok) api.preferences().then((p) => setPrefs({ ...DEFAULT_PREFS, ...p })).catch(() => {}); }, [auth.ok]);
+  const savePrefs = async (p) => { const saved = await api.savePreferences(p); setPrefs({ ...DEFAULT_PREFS, ...saved }); return saved; };
+  const resetPrefs = async () => { const saved = await api.resetPreferences(); setPrefs({ ...DEFAULT_PREFS, ...saved }); return saved; };
+
+  // the shared voice engine follows the voice settings; "read aloud" buttons follow its idle event
+  useEffect(() => {
+    speaker.configure({
+      rate: Number(settings.voiceRate) || 1,
+      voiceURI: settings.voiceURI || '',
+      englishLang: String(settings.voiceLang).startsWith('hi') ? 'en-IN' : settings.voiceLang || 'en-IN',
+    });
+  }, [settings.voiceRate, settings.voiceURI, settings.voiceLang]);
+  useEffect(() => speaker.subscribe((t) => { if (t === 'idle') setSpeakingId(null); }), []);
+  function openVoice() { speaker.prime(); closeOnMobile(); setVoiceOpen(true); }
+
   async function logout() { try { await api.logout(); } finally { window.location.reload(); } }
 
   // theme
@@ -139,7 +162,7 @@ export default function App() {
   }
 
   // modes: send | edit | regenerate | continue
-  async function run(mode, { content, messageId, attachments = [] } = {}) {
+  async function run(mode, { content, messageId, attachments = [], voice = false } = {}) {
     if (streaming) return;
     setError('');
     setNotice('');
@@ -172,7 +195,7 @@ export default function App() {
     setStreaming(true);
     try {
       const body = { mode, content, messageId, attachmentIds: attachments.map((a) => a.id), provider: settings.provider, model: settings.model, temperature: settings.temperature,
-        useMemory: settings.useMemory !== false, useTools: settings.useTools !== false };
+        useMemory: settings.useMemory !== false, useTools: settings.useTools !== false, voice };
       for await (const ev of streamChat(chatId, body, ac.signal)) {
         if (ev.type === 'token') {
           setMessages((prev) => {
@@ -210,16 +233,13 @@ export default function App() {
   }
 
   function speak(msg) {
-    const synth = window.speechSynthesis;
-    if (!synth) return setError('Read-aloud is not supported in this browser.');
-    const was = speakingId === msg.id;
-    synth.cancel();
-    if (was) return setSpeakingId(null);
-    const u = new SpeechSynthesisUtterance(stripMd(msg.content));
-    u.lang = settings.voiceLang;
-    u.onend = u.onerror = () => setSpeakingId(null);
+    if (!speaker.supported) return setError('Read-aloud is not supported in this browser.');
+    if (speakingId === msg.id) { speaker.stop(); setSpeakingId(null); return; }
+    speaker.stop();
+    const chunks = new SpeechChunker().push(msg.content, true);
+    if (!chunks.length) return setError('There is nothing to read aloud in this message.');
     setSpeakingId(msg.id);
-    synth.speak(u);
+    chunks.forEach((c) => speaker.speak(c, { force: true }));
   }
 
   const project = projects.find((p) => p.id === activeProject) || null;
@@ -236,7 +256,7 @@ export default function App() {
         open={sidebarOpen} chats={chats} activeId={activeId} query={query} setQuery={setQuery}
         onNew={newChat} onSelect={selectChat} onRename={renameChat} onDelete={deleteChat}
         onSettings={() => { setShowSettings(true); loadModels(); closeOnMobile(); }} onMemory={() => { setShowMemory(true); closeOnMobile(); }}
-        onClose={() => setSidebarOpen(false)} authRequired={auth.required} onLogout={logout}
+        onClose={() => setSidebarOpen(false)} authRequired={auth.required} onLogout={logout} assistantName={prefs.assistant_name}
         projects={projects} activeProject={activeProject} onSelectProject={selectProject}
         onNewProject={() => { setProjectModal({ project: null }); closeOnMobile(); }}
       />
@@ -270,8 +290,12 @@ export default function App() {
           <button onClick={() => setShowSettings(true)} className="ml-1 truncate rounded-lg px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-ink-700" title="Change model">
             {settings.model || 'No model connected'}
           </button>
+          <button onClick={openVoice} aria-label="Talk by voice" title="Talk by voice"
+            className="ml-auto mr-1 flex items-center gap-1.5 rounded-full bg-brand-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-brand-700">
+            <Mic size={16} /> Talk
+          </button>
           <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme" title="Toggle theme"
-            className="ml-auto rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-ink-700">
+            className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-ink-700">
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
           </button>
         </header>
@@ -283,6 +307,9 @@ export default function App() {
               <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-ink-800 text-marigold"><Sparkles size={26} /></div>
               <h1 className="text-2xl font-semibold">Namaste, kya madad karun?</h1>
               <p className="mt-2 text-slate-500">Hindi, Hinglish ya English: jis mein aap likho, usi mein jawab milega. Photo, PDF, audio ya video bhi attach kar sakte ho.</p>
+              <button onClick={openVoice} className="mt-6 inline-flex items-center gap-2 rounded-full bg-brand-600 px-6 py-3 font-medium text-white shadow-sm hover:bg-brand-700">
+                <Mic size={20} /> Talk to {prefs.assistant_name}
+              </button>
               {noModel && (
                 <p className="mt-5 rounded-lg bg-amber-50 p-3 text-left text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
                   {modelsError || 'No AI model is connected yet. Open Settings to see what is missing.'}
@@ -327,7 +354,12 @@ export default function App() {
           onSend={(t, atts) => run('send', { content: t, attachments: atts })} onStop={() => abortRef.current?.abort()} />
       </main>
 
-      {showMemory && <Memory onClose={() => setShowMemory(false)} />}
+      {showMemory && <Memory onClose={() => setShowMemory(false)} onChatsDeleted={() => { newChat(); refreshChats(); }} />}
+      <VoiceMode
+        open={voiceOpen} onClose={() => setVoiceOpen(false)} settings={settings} setSettings={setSettings} prefs={prefs}
+        messages={messages} streaming={streaming} error={error} notice={notice}
+        onSend={(t) => { const atts = attach.ready; attach.clear(); return run('send', { content: t, attachments: atts, voice: true }); }}
+        onStopGeneration={() => abortRef.current?.abort()} attach={attach} onOpenSettings={() => setShowSettings(true)} />
       {projectModal && (
         <ProjectModal
           project={projectModal.project} initialTab={projectModal.tab} filesVersion={filesVersion}
@@ -338,7 +370,7 @@ export default function App() {
       )}
       {showSettings && (
         <Settings settings={settings} setSettings={setSettings} providers={providers} modelsError={modelsError}
-          theme={theme} setTheme={setTheme} caps={caps} onClose={() => setShowSettings(false)} />
+          theme={theme} setTheme={setTheme} caps={caps} prefs={prefs} savePrefs={savePrefs} resetPrefs={resetPrefs} onClose={() => setShowSettings(false)} />
       )}
     </div>
   );
